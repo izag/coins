@@ -2,6 +2,7 @@ import asyncio
 import json
 import os.path
 import re
+import signal
 import time
 from threading import Thread
 from tkinter import *
@@ -15,6 +16,7 @@ import tornado.web
 import wmi
 from tornado import httputil
 from tornado.options import define, options, parse_command_line
+from pywinauto import Application
 
 define("port", default=8888, help="run on the given port", type=int)
 define("debug", default=True, help="run in debug mode")
@@ -24,10 +26,18 @@ processes = {}
 root = Tk()
 cache = {}
 
-
+# TODO:
+# 1. Coloring
+# 2. Use SQL DB
+# 3. Sort rows
+# 4. Input IP
 class App(Frame):
     def __init__(self, parent):
         super().__init__(parent)
+
+        parent.title("Локальные браузеры")
+
+        r = 0
         self.treeview = Treeview(self)
         self.treeview['columns'] = ('process_id', 'ip', 'process_name', 'parent_id', 'time')
         self.treeview.heading("#0", text='Serial', anchor='w')
@@ -42,12 +52,29 @@ class App(Frame):
         self.treeview.column('parent_id', anchor='center', width=100)
         self.treeview.heading('time', text='Time')
         self.treeview.column('time', anchor='center', width=100)
-        self.treeview.grid(sticky=(N, S, W, E))
+        self.treeview.grid(row=r, column=0, columnspan=2, sticky=NSEW)
+
+        r += 1
+        Label(self, text='Значение очереди', anchor=E).grid(row=r, column=0, sticky=EW)
+
+        self.sv_threshold = StringVar()
+        self.entry_threshold = Entry(self, textvariable=self.sv_threshold, width=40)
+        self.entry_threshold.grid(row=r, column=1, sticky=EW)
+
+        r += 1
+        self.btn_activate = Button(self, text="Activate",
+                                   command=self.activate_browser)
+        self.btn_activate.grid(row=r, column=0, sticky=EW)
+
+        self.btn_close = Button(self, text="Close",
+                                command=self.close_browser)
+        self.btn_close.grid(row=r, column=1, sticky=EW)
+
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
-        self.grid(sticky=(N, S, W, E))
         parent.grid_rowconfigure(0, weight=1)
         parent.grid_columnconfigure(0, weight=1)
+        self.grid(sticky=NSEW)
         self.update()
 
     def update(self):
@@ -63,6 +90,24 @@ class App(Frame):
 
         root.update_idletasks()
         root.after(1000, self.update)
+
+    def close_browser(self):
+        selected = self.treeview.selection()
+        for iid in selected:
+            values = self.treeview.item(iid, 'values')
+            pid = int(values[0])
+            os.kill(pid, signal.SIGTERM)
+
+    def activate_browser(self):
+        selected = self.treeview.selection()
+        if len(selected) == 0:
+            return
+
+        iid = selected[0]
+        values = self.treeview.item(iid, 'values')
+        pid = int(values[0])
+        app = Application().connect(process=pid)
+        app.top_window().set_focus()
 
 
 class Filler(Thread):
@@ -90,10 +135,12 @@ class Printer(Thread):
     def run(self):
         global model
         while True:
-            # print("Browsers >")
             tmp = []
             for pid, process in list(processes.items()):
                 if process.ParentProcessId in processes:
+                    continue
+
+                if process.CommandLine is None:
                     continue
 
                 m = re.search("acc_id=(\d+)", process.CommandLine)
@@ -102,10 +149,8 @@ class Printer(Thread):
                 m = re.search("ip=([\d\.]+)", process.CommandLine)
                 ip = m.group(1)
 
-                # print(f"{process.Name} {process.ParentProcessId} {process.ProcessId} {browser_id} {ip}")
                 tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId, cache.get(ip, "")))
 
-            # print()
             tmp.sort()
             model = tmp
             time.sleep(1)
@@ -159,7 +204,7 @@ class Server(Thread):
 
 
 if __name__ == "__main__":
-    Server().start()
+    # Server().start()
     Filler().start()
     Printer().start()
     App(root)
