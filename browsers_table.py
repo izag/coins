@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os.path
+import random
 import re
 import signal
 import time
@@ -10,21 +11,30 @@ from tkinter.ttk import *
 from typing import Any
 
 import pythoncom
+import pywintypes
 import tornado.escape
 import tornado.locks
 import tornado.web
+import win32con
+import win32gui
+import win32process
 import wmi
+from pywinauto import Application
 from tornado import httputil
 from tornado.options import define, options, parse_command_line
-from pywinauto import Application
 
 define("port", default=8888, help="run on the given port", type=int)
 define("debug", default=True, help="run in debug mode")
+
+LOWER_BOUND = 20000
 
 model = []
 processes = {}
 root = Tk()
 cache = {}
+sort_idx = 0
+is_reversed = False
+
 
 # TODO:
 # 1. Coloring
@@ -37,10 +47,18 @@ class App(Frame):
 
         parent.title("Локальные браузеры")
 
+        s = Style()
+        s.configure('Treeview.Heading', rowheight=30)
+        s.configure('Treeview', rowheight=30)
+
+        tree_frame = Frame(self)
+        tree_scroll = Scrollbar(tree_frame)
+        tree_scroll.pack(side=RIGHT, fill=Y)
+
         r = 0
-        self.treeview = Treeview(self)
-        self.treeview['columns'] = ('process_id', 'ip', 'process_name', 'parent_id', 'time')
-        self.treeview.heading("#0", text='Serial', anchor='w')
+        self.treeview = Treeview(tree_frame, yscrollcommand=tree_scroll.set, selectmode=BROWSE)
+        self.treeview['columns'] = ('process_id', 'ip', 'process_name', 'parent_id', 'position')
+        self.treeview.heading("#0", text='Serial', anchor='w', command=lambda: self.treeview_sort_column(0, False))
         self.treeview.column("#0", anchor="w")
         self.treeview.heading('process_id', text='PID')
         self.treeview.column('process_id', anchor='center', width=100)
@@ -50,9 +68,24 @@ class App(Frame):
         self.treeview.column('process_name', anchor='center', width=100)
         self.treeview.heading('parent_id', text='Parent PID')
         self.treeview.column('parent_id', anchor='center', width=100)
-        self.treeview.heading('time', text='Time')
-        self.treeview.column('time', anchor='center', width=100)
-        self.treeview.grid(row=r, column=0, columnspan=2, sticky=NSEW)
+        self.treeview.heading('position', text='Position')
+        self.treeview.column('position', anchor='center', width=100)
+
+        idx = 0
+        for col in self.treeview['columns']:
+            idx += 1
+            self.treeview.heading(col, command=lambda i=idx: self.treeview_sort_column(i, False))
+
+        self.treeview.tag_configure('upper', background="white")
+        self.treeview.tag_configure('lower', background="lightblue")
+
+        # self.treeview.bind('<Double-1>', self.on_select)
+        self.treeview.bind('<ButtonRelease-1>', self.on_select)
+
+        tree_scroll.config(command=self.treeview.yview)
+
+        self.treeview.pack(expand=True, fill=BOTH)
+        tree_frame.grid(row=r, column=0, columnspan=2, sticky=NSEW)
 
         r += 1
         Label(self, text='Значение очереди', anchor=E).grid(row=r, column=0, sticky=EW)
@@ -62,12 +95,11 @@ class App(Frame):
         self.entry_threshold.grid(row=r, column=1, sticky=EW)
 
         r += 1
-        self.btn_activate = Button(self, text="Activate",
-                                   command=self.activate_browser)
-        self.btn_activate.grid(row=r, column=0, sticky=EW)
+        # self.btn_activate = Button(self, text="Activate",
+        #                            command=self.activate_browser)
+        # self.btn_activate.grid(row=r, column=0, sticky=EW)
 
-        self.btn_close = Button(self, text="Close",
-                                command=self.close_browser)
+        self.btn_close = Button(self, text="Close", command=self.close_browser)
         self.btn_close.grid(row=r, column=1, sticky=EW)
 
         self.grid_rowconfigure(0, weight=1)
@@ -84,7 +116,11 @@ class App(Frame):
             self.treeview.delete(i)
         for row in list(model):
             serial = row[0]
-            self.treeview.insert('', 'end', iid=serial, text=str(serial), values=row[1:])
+            position = row[5]
+            tags = ('lower',)
+            if position < LOWER_BOUND:
+                tags = ('upper',)
+            self.treeview.insert('', 'end', iid=serial, text=str(serial), values=row[1:], tags=tags)
 
         self.treeview.selection_set([iid for iid in selected if self.treeview.exists(iid)])
 
@@ -108,6 +144,60 @@ class App(Frame):
         pid = int(values[0])
         app = Application().connect(process=pid)
         app.top_window().set_focus()
+
+    def on_select(self, event):
+        iid = self.treeview.identify('item', event.x, event.y)
+        values = self.treeview.item(iid, 'values')
+        if len(values) == 0:
+            return
+
+        pid = int(values[0])
+        hwnd = find_window_for_pid(pid)
+        if hwnd is None:
+            return
+
+        win32gui.SetForegroundWindow(hwnd)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
+
+    def treeview_sort_column(self, idx, reverse):
+        global sort_idx
+        global is_reversed
+
+        sort_idx = idx
+        is_reversed = reverse
+
+        if idx == 0:
+            col = "#0"
+            # l = [(self.treeview.item(k)["text"], k) for k in self.treeview.get_children('')]
+        else:
+            col = self.treeview['columns'][idx - 1]
+            # l = [(self.treeview.set(k, col), k) for k in self.treeview.get_children('')]
+        # l.sort(reverse=reverse)
+        #
+        # # rearrange items in sorted positions
+        # for index, (val, k) in enumerate(l):
+        #     self.treeview.move(k, '', index)
+
+        # reverse sort next time
+        self.treeview.heading(col, command=lambda: self.treeview_sort_column(idx, not reverse))
+
+
+def find_window_for_pid(pid):
+    result = None
+
+    def callback(hwnd, _):
+        nonlocal result
+        ctid, cpid = win32process.GetWindowThreadProcessId(hwnd)
+        if cpid == pid:
+            result = hwnd
+            return False
+        return True
+
+    try:
+        win32gui.EnumWindows(callback, None)
+    except pywintypes.error:
+        pass
+    return result
 
 
 class Filler(Thread):
@@ -149,9 +239,11 @@ class Printer(Thread):
                 m = re.search("ip=([\d\.]+)", process.CommandLine)
                 ip = m.group(1)
 
-                tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId, cache.get(ip, "")))
+                # tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId, cache.get(ip, "")))
+                tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId,
+                            random.randrange(1, 50000)))
 
-            tmp.sort()
+            tmp.sort(key=lambda t: t[sort_idx], reverse=is_reversed)
             model = tmp
             time.sleep(1)
 
