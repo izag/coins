@@ -41,6 +41,7 @@ is_reversed = False
 # 2. Use SQL DB
 # 3. Sort rows
 # 4. Input IP
+# 5. https://numbergenerator.org/randomnumbergenerator/
 class App(Frame):
     def __init__(self, parent):
         super().__init__(parent)
@@ -79,7 +80,6 @@ class App(Frame):
         self.treeview.tag_configure('upper', background="white")
         self.treeview.tag_configure('lower', background="lightblue")
 
-        # self.treeview.bind('<Double-1>', self.on_select)
         self.treeview.bind('<ButtonRelease-1>', self.on_select)
 
         tree_scroll.config(command=self.treeview.yview)
@@ -245,9 +245,9 @@ class Printer(Thread):
                 m = re.search("ip=([\d\.]+)", process.CommandLine)
                 ip = m.group(1)
 
-                # tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId, cache.get(ip, "")))
-                tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId,
-                            random.randrange(1, 50000)))
+                tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId, cache.get(ip, 0)))
+                # tmp.append((browser_id, process.ProcessId, ip, process.Name, process.ParentProcessId,
+                #             random.randrange(1, 50000)))
 
             tmp.sort(key=lambda t: t[sort_idx], reverse=is_reversed)
             model = tmp
@@ -273,7 +273,8 @@ class JSONHandler(tornado.web.RequestHandler):
             self.write(dict(result="error"))
             return
 
-        cache[self.json_args["ip"]] = self.json_args["time"]
+        position = self.json_args["position"]
+        cache[self.json_args["ip"]] = int(position) if position.isdigit() else 0
         self.write(dict(result="ok"))
 
 
@@ -302,7 +303,7 @@ class Server(Thread):
 
 
 if __name__ == "__main__":
-    # Server().start()
+    Server().start()
     Filler().start()
     Printer().start()
     App(root)

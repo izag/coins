@@ -7,6 +7,10 @@
         {
             "matches": ["https://*.timeanddate.com/*"],
             "js": ["content-local.js"]
+        },
+        {
+            "matches": ["https://*.numbergenerator.org/*"],
+            "js": ["numbergenerator.js"]
         }
     ],
     "permissions": ["storage", "activeTab", "scripting"],
