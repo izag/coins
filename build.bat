@@ -1,0 +1,1 @@
+.\venv\Scripts\pyinstaller.exe -F --noconsole .\browsers_table.py
