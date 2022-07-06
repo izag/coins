@@ -26,7 +26,7 @@ from tornado.options import define, options, parse_command_line
 define("port", default=8888, help="run on the given port", type=int)
 define("debug", default=True, help="run in debug mode")
 
-LOWER_BOUND = 20000
+lower_bound = 20000
 
 model = []
 processes = {}
@@ -93,6 +93,7 @@ class App(Frame):
         self.sv_threshold = StringVar()
         self.entry_threshold = Entry(self, textvariable=self.sv_threshold, width=40)
         self.entry_threshold.grid(row=r, column=1, sticky=EW)
+        self.sv_threshold.trace('w', self.on_threshold_change)
 
         r += 1
         # self.btn_activate = Button(self, text="Activate",
@@ -118,7 +119,7 @@ class App(Frame):
             serial = row[0]
             position = row[5]
             tags = ('lower',)
-            if position < LOWER_BOUND:
+            if position < lower_bound:
                 tags = ('upper',)
             self.treeview.insert('', 'end', iid=serial, text=str(serial), values=row[1:], tags=tags)
 
@@ -126,6 +127,11 @@ class App(Frame):
 
         root.update_idletasks()
         root.after(1000, self.update)
+
+    def on_threshold_change(self, *args):
+        global lower_bound
+        s = self.sv_threshold.get()
+        lower_bound = int(s) if s.isdigit() else 0
 
     def close_browser(self):
         selected = self.treeview.selection()

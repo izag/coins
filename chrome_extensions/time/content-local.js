@@ -30,7 +30,7 @@ async function postData(url = '', data = {}) {
         body: JSON.stringify(data) // body data type must match "Content-Type" header
     });
     
-    return await response;
+    return response;
 }
 
 
