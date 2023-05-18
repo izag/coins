@@ -1,6 +1,6 @@
 {
-    "name": "TimeTest",
-    "description": "Test sending ip and time to Firebase.",
+    "name": "CoinQueue",
+    "description": "Sending ip and queue position to python client.",
     "version": "1.0",
     "manifest_version": 3,
     "content_scripts": [
@@ -11,6 +11,10 @@
         {
             "matches": ["https://*.numbergenerator.org/*"],
             "js": ["numbergenerator.js"]
+        },
+        {
+            "matches": ["https://queue.coinlist.co/*"],
+            "js": ["coinlist-queue.js"]
         }
     ],
     "permissions": ["storage", "activeTab", "scripting"],
